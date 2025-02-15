@@ -15,7 +15,7 @@ app = Flask(__name__)
 CHANNEL_ACCESS_TOKEN = os.getenv('CHANNEL_ACCESS_TOKEN')
 CHANNEL_SECRET = os.getenv('CHANNEL_SECRET')
 OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
-TARGET_ID = "84615918"  # 直接指定目標 ID
+TARGET_ID = "84615918"  # 目標 ID
 
 if not all([CHANNEL_ACCESS_TOKEN, CHANNEL_SECRET, OPENAI_API_KEY]):
     raise ValueError("請確保 CHANNEL_ACCESS_TOKEN、CHANNEL_SECRET 和 OPENAI_API_KEY 已設定")
@@ -88,7 +88,7 @@ def send_topic():
             logging.error(f"推送話題失敗: {traceback.format_exc()}")
 
 scheduler = BackgroundScheduler()
-scheduler.add_job(send_topic, 'interval', minutes=10)
+scheduler.add_job(send_topic, 'interval', minutes=1)
 scheduler.start()
 
 if __name__ == "__main__":
