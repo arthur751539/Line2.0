@@ -1,5 +1,4 @@
 # -*- coding: utf-8 -*-
-# 請先執行: pip install apscheduler
 from flask import Flask, request, abort, jsonify
 from linebot import LineBotApi, WebhookHandler
 from linebot.exceptions import InvalidSignatureError
@@ -8,7 +7,11 @@ import openai
 import os
 import traceback
 import logging
-from apscheduler.schedulers.background import BackgroundScheduler
+
+try:
+    from apscheduler.schedulers.background import BackgroundScheduler
+except ModuleNotFoundError:
+    raise ModuleNotFoundError("請先執行: pip install apscheduler")
 
 logging.basicConfig(level=logging.INFO)
 app = Flask(__name__)
