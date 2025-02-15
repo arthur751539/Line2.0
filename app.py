@@ -7,16 +7,15 @@ import openai
 import os
 import traceback
 import logging
+import opencc
+import json
+from apscheduler.schedulers.background import BackgroundScheduler
 
 # 設置日誌記錄
 logging.basicConfig(level=logging.INFO)
 
 # 初始化 Flask
 app = Flask(__name__)
-
-# 設置靜態目錄，確保資料夾存在
-static_tmp_path = os.path.join(os.path.dirname(__file__), 'static', 'tmp')
-os.makedirs(static_tmp_path, exist_ok=True)
 
 # 讀取環境變數
 CHANNEL_ACCESS_TOKEN = os.getenv('CHANNEL_ACCESS_TOKEN')
@@ -32,30 +31,77 @@ line_bot_api = LineBotApi(CHANNEL_ACCESS_TOKEN)
 handler = WebhookHandler(CHANNEL_SECRET)
 openai.api_key = OPENAI_API_KEY
 
-def GPT_response(text):
+# 初始化簡繁轉換器（簡體 → 繁體）
+converter = opencc.OpenCC('s2t.json')
+
+# 記錄用戶 ID 的文件
+USER_DATA_FILE = "users.json"
+
+def load_users():
+    """ 載入已記錄的用戶 ID """
+    if os.path.exists(USER_DATA_FILE):
+        with open(USER_DATA_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    return []
+
+def save_users(users):
+    """ 儲存用戶 ID 到文件 """
+    with open(USER_DATA_FILE, "w", encoding="utf-8") as f:
+        json.dump(users, f, ensure_ascii=False, indent=4)
+
+def add_user(user_id):
+    """ 新增用戶 ID，避免重複 """
+    users = load_users()
+    if user_id not in users:
+        users.append(user_id)
+        save_users(users)
+
+def GPT_generate_topic():
     """
-    透過 OpenAI API 取得 GPT-4o 回應，並確保返回的是繁體中文
+    透過 OpenAI 生成一個話題，確保是繁體中文
     """
     try:
         response = openai.ChatCompletion.create(
-            model="gpt-4o",  # ✅ 改成 GPT-4o
+            model="gpt-4o",  # ✅ 使用 GPT-4o
             messages=[
-                {"role": "system", "content": "請使用繁體中文回答。"},
-                {"role": "user", "content": text}
+                {"role": "system", "content": "請生成一個有趣的聊天話題，使用繁體中文。"},
+                {"role": "user", "content": "請給我一個新的聊天話題。"}
             ],
-            temperature=0.5,
-            max_tokens=500
+            temperature=0.7,
+            max_tokens=100
         )
-        answer = response['choices'][0]['message']['content'].strip()
-        return answer.encode('utf-8').decode('utf-8')  # 確保編碼正確
+        topic = response['choices'][0]['message']['content'].strip()
+        return converter.convert(topic)  # 轉換為繁體
     except Exception as e:
-        logging.error(f"OpenAI API 呼叫失敗: {traceback.format_exc()}")
-        return "發生錯誤，請稍後再試。"
+        logging.error(f"生成話題時發生錯誤: {traceback.format_exc()}")
+        return "今天的話題生成失敗了，請稍後再試！"
+
+def send_scheduled_topic():
+    """
+    每 10 分鐘自動發送話題給所有已聯繫過的用戶
+    """
+    users = load_users()
+    if not users:
+        logging.info("沒有用戶可發送話題")
+        return
+
+    topic = GPT_generate_topic()
+    for user_id in users:
+        try:
+            line_bot_api.push_message(user_id, TextSendMessage(text=f"📢 今日話題：\n{topic}"))
+            logging.info(f"已發送話題給用戶 {user_id}: {topic}")
+        except Exception as e:
+            logging.error(f"無法發送話題給 {user_id}: {traceback.format_exc()}")
+
+# ✅ 設定為每 10 分鐘發送一次
+scheduler = BackgroundScheduler()
+scheduler.add_job(send_scheduled_topic, 'interval', minutes=10)  # ✅ 每 10 分鐘發送 1 次
+scheduler.start()
 
 @app.route("/callback", methods=['POST'])
 def callback():
     """
-    接收 LINE Webhook 回調，確保 JSON 回應為 UTF-8
+    接收 LINE Webhook 回調
     """
     signature = request.headers.get('X-Line-Signature')
     if not signature:
@@ -69,7 +115,6 @@ def callback():
     except InvalidSignatureError:
         abort(400, "無效的簽名")
 
-    # 明確設定 Content-Type 為 UTF-8
     response = make_response(jsonify({"status": "OK"}), 200)
     response.headers["Content-Type"] = "application/json; charset=UTF-8"
     return response
@@ -77,44 +122,21 @@ def callback():
 @handler.add(MessageEvent, message=TextMessage)
 def handle_text_message(event):
     """
-    處理來自 LINE 的文字訊息，確保回應內容為 UTF-8
+    處理來自 LINE 的文字訊息
     """
+    user_id = event.source.user_id  # 取得用戶 ID
+    add_user(user_id)  # 記錄用戶 ID
+
     user_message = event.message.text
     try:
-        bot_reply = GPT_response(user_message)
-        logging.info(f"用戶: {user_message} -> GPT 回應: {bot_reply}")
-        line_bot_api.reply_message(
-            event.reply_token,
-            TextSendMessage(text=str(bot_reply))  # 確保為字串格式
-        )
+        if user_message.lower() in ["話題", "新話題", "給我一個話題"]:
+            topic = GPT_generate_topic()
+            line_bot_api.reply_message(event.reply_token, TextSendMessage(text=f"📝 新話題：\n{topic}"))
+        else:
+            line_bot_api.reply_message(event.reply_token, TextSendMessage(text="請輸入「話題」來獲取新的聊天話題！"))
     except Exception as e:
         logging.error(f"回應用戶時發生錯誤: {traceback.format_exc()}")
-        line_bot_api.reply_message(
-            event.reply_token,
-            TextSendMessage(text="發生錯誤，請稍後再試。")
-        )
-
-@handler.add(PostbackEvent)
-def handle_postback(event):
-    """
-    處理 Postback 事件
-    """
-    logging.info(f"收到 Postback 事件: {event.postback.data}")
-
-@handler.add(MemberJoinedEvent)
-def welcome(event):
-    """
-    處理新成員加入群組
-    """
-    try:
-        uid = event.joined.members[0].user_id
-        gid = event.source.group_id
-        profile = line_bot_api.get_group_member_profile(gid, uid)
-        name = profile.display_name
-        welcome_message = TextSendMessage(text=f'{name}，歡迎加入！')
-        line_bot_api.reply_message(event.reply_token, welcome_message)
-    except Exception as e:
-        logging.error(f"無法取得新成員資訊: {traceback.format_exc()}")
+        line_bot_api.reply_message(event.reply_token, TextSendMessage(text="發生錯誤，請稍後再試。"))
 
 if __name__ == "__main__":
     port = int(os.environ.get('PORT', 5000))
