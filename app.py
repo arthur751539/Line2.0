@@ -7,29 +7,24 @@ import openai
 import os
 import traceback
 import logging
+from apscheduler.schedulers.background import BackgroundScheduler
 
-# 設置日誌記錄
 logging.basicConfig(level=logging.INFO)
-
-# 初始化 Flask
 app = Flask(__name__)
 
-# 讀取環境變數
 CHANNEL_ACCESS_TOKEN = os.getenv('CHANNEL_ACCESS_TOKEN')
 CHANNEL_SECRET = os.getenv('CHANNEL_SECRET')
 OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
+TARGET_ID = os.getenv('TARGET_ID')  # 推送話題的目標 ID
 
-# 確保環境變數已設定
 if not all([CHANNEL_ACCESS_TOKEN, CHANNEL_SECRET, OPENAI_API_KEY]):
     raise ValueError("請確保 CHANNEL_ACCESS_TOKEN、CHANNEL_SECRET 和 OPENAI_API_KEY 已設定")
 
-# 初始化 LINE Bot 與 OpenAI API
 line_bot_api = LineBotApi(CHANNEL_ACCESS_TOKEN)
 handler = WebhookHandler(CHANNEL_SECRET)
 openai.api_key = OPENAI_API_KEY
 
 def GPT_response(text):
-    """ 透過 OpenAI API 取得 GPT-4o 回應（繁體中文） """
     try:
         response = openai.ChatCompletion.create(
             model="gpt-4o",
@@ -47,7 +42,6 @@ def GPT_response(text):
 
 @app.route("/callback", methods=['POST'])
 def callback():
-    """ 接收 LINE Webhook 回調 """
     signature = request.headers.get('X-Line-Signature')
     if not signature:
         abort(400, "缺少 X-Line-Signature")
@@ -61,7 +55,6 @@ def callback():
 
 @handler.add(MessageEvent, message=TextMessage)
 def handle_text_message(event):
-    """ 處理來自 LINE 的文字訊息 """
     user_message = event.message.text
     try:
         bot_reply = GPT_response(user_message)
@@ -73,19 +66,30 @@ def handle_text_message(event):
 
 @handler.add(PostbackEvent)
 def handle_postback(event):
-    """ 處理 Postback 事件 """
     logging.info(f"收到 Postback 事件: {event.postback.data}")
 
 @handler.add(MemberJoinedEvent)
 def welcome(event):
-    """ 處理新成員加入群組 """
     try:
-        profile = line_bot_api.get_group_member_profile(event.source.group_id,
-                                                          event.joined.members[0].user_id)
-        line_bot_api.reply_message(event.reply_token, 
-                                   TextSendMessage(text=f'{profile.display_name}，歡迎加入！'))
+        profile = line_bot_api.get_group_member_profile(
+            event.source.group_id, event.joined.members[0].user_id)
+        line_bot_api.reply_message(
+            event.reply_token, TextSendMessage(text=f'{profile.display_name}，歡迎加入！'))
     except Exception:
         logging.error(f"無法取得新成員資訊: {traceback.format_exc()}")
+
+def send_topic():
+    topic = GPT_response("請給我一個新的聊天話題。")
+    logging.info(f"自動發起的話題: {topic}")
+    if TARGET_ID:
+        try:
+            line_bot_api.push_message(TARGET_ID, TextSendMessage(text=f"📝 新話題：\n{topic}"))
+        except Exception:
+            logging.error(f"推送話題失敗: {traceback.format_exc()}")
+
+scheduler = BackgroundScheduler()
+scheduler.add_job(send_topic, 'interval', minutes=10)
+scheduler.start()
 
 if __name__ == "__main__":
     app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5000)))
