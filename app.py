@@ -34,17 +34,20 @@ openai.api_key = OPENAI_API_KEY
 
 def GPT_response(text):
     """
-    透過 OpenAI API 取得 GPT 回應，確保 UTF-8 編碼
+    透過 OpenAI API 取得 GPT 回應，並確保返回的是繁體中文
     """
     try:
         response = openai.ChatCompletion.create(
             model="gpt-3.5-turbo",
-            messages=[{"role": "user", "content": text}],
+            messages=[
+                {"role": "system", "content": "請使用繁體中文回答。"},
+                {"role": "user", "content": text}
+            ],
             temperature=0.5,
             max_tokens=500
         )
         answer = response['choices'][0]['message']['content'].strip()
-        return answer.encode('utf-8').decode('utf-8')  # 確保回傳 UTF-8
+        return answer.encode('utf-8').decode('utf-8')  # 確保編碼正確
     except Exception as e:
         logging.error(f"OpenAI API 呼叫失敗: {traceback.format_exc()}")
         return "發生錯誤，請稍後再試。"
