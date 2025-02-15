@@ -33,21 +33,38 @@ def load_config():
             return json.load(f)
     except Exception:
         logging.error(f"讀取設定檔失敗: {traceback.format_exc()}")
-        return {"language": "繁體中文", "tone": "正常"}
+        return {}
 
-def GPT_response(text):
+def GPT_response(user_text):
     """
-    呼叫 OpenAI ChatCompletion API，並根據 config.json 中的設定模擬指定語氣。
+    呼叫 OpenAI ChatCompletion API，每次都直接進入角色扮演模式，
+    使用 config.json 中的設定以【聖園未花】角色回應。
     """
     config = load_config()
-    system_message = f"你是一個聊天機器人，請使用 {config.get('language', '繁體中文')} 回答，且以 {config.get('tone', '正常')} 的語氣回應。"
+    roleplay_config = config.get("roleplay", {})
+    
+    # 組合角色扮演的 system 提示詞
+    system_prompt = (
+        roleplay_config.get("instructions", "") + "\n\n" +
+        roleplay_config.get("character_instructions", "") + "\n\n" +
+        "【角色設定】\n" +
+        "名稱：" + roleplay_config.get("character_profile", {}).get("name", "") + "\n" +
+        "描述：" + roleplay_config.get("character_profile", {}).get("description", "") + "\n" +
+        "背景：" + roleplay_config.get("character_profile", {}).get("background", "") + "\n" +
+        "外觀：" + roleplay_config.get("character_profile", {}).get("appearance", "") + "\n\n" +
+        "【劇情設定】\n" +
+        "初次會面情境：" + roleplay_config.get("scenario", {}).get("meeting", "") + "\n" +
+        "挑戰情境：" + roleplay_config.get("scenario", {}).get("challenge", "") + "\n\n" +
+        "【參考語句】\n" +
+        "；".join(roleplay_config.get("reference_phrases", []))
+    )
     
     try:
         response = openai.ChatCompletion.create(
             model="gpt-4-turbo",  # 請確保使用正確且有權限的模型名稱
             messages=[
-                {"role": "system", "content": system_message},
-                {"role": "user", "content": text}
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_text}
             ],
             temperature=0.5,
             max_tokens=500
@@ -77,7 +94,7 @@ def callback():
 @handler.add(MessageEvent, message=TextMessage)
 def handle_text_message(event):
     """
-    處理用戶傳來的文字訊息，並回應 GPT 的回答。
+    處理用戶傳來的文字訊息，並以角色扮演模式回應（永遠以【聖園未花】身份應答）。
     """
     user_message = event.message.text
     try:
