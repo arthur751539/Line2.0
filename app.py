@@ -34,11 +34,11 @@ openai.api_key = OPENAI_API_KEY
 
 def GPT_response(text):
     """
-    透過 OpenAI API 取得 GPT 回應，並確保返回的是繁體中文
+    透過 OpenAI API 取得 GPT-4o 回應，並確保返回的是繁體中文
     """
     try:
         response = openai.ChatCompletion.create(
-            model="gpt-3.5-turbo",
+            model="gpt-4o",  # ✅ 改成 GPT-4o
             messages=[
                 {"role": "system", "content": "請使用繁體中文回答。"},
                 {"role": "user", "content": text}
