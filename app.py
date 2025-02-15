@@ -7,11 +7,7 @@ import openai
 import os
 import traceback
 import logging
-
-try:
-    from apscheduler.schedulers.background import BackgroundScheduler
-except ModuleNotFoundError:
-    raise ModuleNotFoundError("請先執行: pip install apscheduler")
+from apscheduler.schedulers.background import BackgroundScheduler  # 請先執行: pip install apscheduler
 
 logging.basicConfig(level=logging.INFO)
 app = Flask(__name__)
