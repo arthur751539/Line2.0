@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+# 請先執行: pip install apscheduler
 from flask import Flask, request, abort, jsonify
 from linebot import LineBotApi, WebhookHandler
 from linebot.exceptions import InvalidSignatureError
