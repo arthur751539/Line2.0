@@ -15,7 +15,6 @@ app = Flask(__name__)
 CHANNEL_ACCESS_TOKEN = os.getenv('CHANNEL_ACCESS_TOKEN')
 CHANNEL_SECRET = os.getenv('CHANNEL_SECRET')
 OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
-TARGET_ID = "84615918"  # 目標 ID
 
 if not all([CHANNEL_ACCESS_TOKEN, CHANNEL_SECRET, OPENAI_API_KEY]):
     raise ValueError("請確保 CHANNEL_ACCESS_TOKEN、CHANNEL_SECRET 和 OPENAI_API_KEY 已設定")
@@ -23,6 +22,9 @@ if not all([CHANNEL_ACCESS_TOKEN, CHANNEL_SECRET, OPENAI_API_KEY]):
 line_bot_api = LineBotApi(CHANNEL_ACCESS_TOKEN)
 handler = WebhookHandler(CHANNEL_SECRET)
 openai.api_key = OPENAI_API_KEY
+
+# 全域變數：儲存所有與 Bot 聯繫過的用戶 ID
+user_ids = set()
 
 def GPT_response(text):
     try:
@@ -55,6 +57,8 @@ def callback():
 
 @handler.add(MessageEvent, message=TextMessage)
 def handle_text_message(event):
+    if event.source.user_id:
+        user_ids.add(event.source.user_id)
     user_message = event.message.text
     try:
         bot_reply = GPT_response(user_message)
@@ -70,6 +74,8 @@ def handle_postback(event):
 
 @handler.add(MemberJoinedEvent)
 def welcome(event):
+    if event.joined.members and event.joined.members[0].user_id:
+        user_ids.add(event.joined.members[0].user_id)
     try:
         profile = line_bot_api.get_group_member_profile(
             event.source.group_id, event.joined.members[0].user_id)
@@ -81,11 +87,12 @@ def welcome(event):
 def send_topic():
     topic = GPT_response("請給我一個新的聊天話題。")
     logging.info(f"自動發起的話題: {topic}")
-    if TARGET_ID:
+    for uid in list(user_ids):
         try:
-            line_bot_api.push_message(TARGET_ID, TextSendMessage(text=f"📝 新話題：\n{topic}"))
+            line_bot_api.push_message(uid, TextSendMessage(text=f"📝 新話題：\n{topic}"))
+            logging.info(f"推送訊息成功給 {uid}")
         except Exception:
-            logging.error(f"推送話題失敗: {traceback.format_exc()}")
+            logging.error(f"推送話題失敗給 {uid}: {traceback.format_exc()}")
 
 scheduler = BackgroundScheduler()
 scheduler.add_job(send_topic, 'interval', minutes=1)
